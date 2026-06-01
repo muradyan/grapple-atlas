@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 
 // ---------------------------------------------------------------------------
 // Live 3D renderer for the roll. Draws the two grapplers from GrappleMap's
@@ -19,72 +20,164 @@ const J = {
   LHand: 16, RHand: 17, LFin: 18, RFin: 19, Core: 20, Neck: 21, Head: 22,
 }
 
-// Bones to draw: [jointA, jointB, radius]. Thicker torso, tapering limbs.
-// NB: legs start at the HIPS (not Core). The Core→pelvis link is a single spine
-// segment drawn separately (to the hip midpoint), plus a pelvis bar LHip↔RHip —
-// otherwise the two Core→hip sticks read as leg-tops and legs look too long.
-const BONES: [number, number, number][] = [
-  [J.Core, J.Neck, 0.07],
-  [J.Neck, J.LSho, 0.05], [J.Neck, J.RSho, 0.05],
-  [J.LSho, J.LElb, 0.042], [J.LElb, J.LWri, 0.034],
-  [J.RSho, J.RElb, 0.042], [J.RElb, J.RWri, 0.034],
-  [J.LHip, J.RHip, 0.065], // pelvis bar
-  [J.LHip, J.LKnee, 0.055], [J.LKnee, J.LAnkle, 0.044],
-  [J.RHip, J.RKnee, 0.055], [J.RKnee, J.RAnkle, 0.044],
-  [J.LAnkle, J.LToe, 0.032], [J.RAnkle, J.RToe, 0.032],
+// Limb bones, drawn as muscle-tapered cylinders: [jointA, jointB, radiusA, radiusB].
+// The fleshy trunk (chest / abdomen / pelvis) is built from oriented volumes below
+// instead of sticks, so the figure reads as a body rather than a skeleton.
+const BONES: [number, number, number, number][] = [
+  [J.Neck, J.LSho, 0.035, 0.046], [J.Neck, J.RSho, 0.035, 0.046], // clavicles
+  [J.LSho, J.LElb, 0.05, 0.038], [J.LElb, J.LWri, 0.038, 0.028], // left arm
+  [J.RSho, J.RElb, 0.05, 0.038], [J.RElb, J.RWri, 0.038, 0.028], // right arm
+  [J.Neck, J.Head, 0.052, 0.046], // neck
+  [J.LHip, J.LKnee, 0.082, 0.058], [J.LKnee, J.LAnkle, 0.058, 0.036], // left leg
+  [J.RHip, J.RKnee, 0.082, 0.058], [J.RKnee, J.RAnkle, 0.058, 0.036], // right leg
+  [J.LAnkle, J.LToe, 0.036, 0.03], [J.LAnkle, J.LHeel, 0.036, 0.03], // left foot
+  [J.RAnkle, J.RToe, 0.036, 0.03], [J.RAnkle, J.RHeel, 0.036, 0.03], // right foot
 ]
-// Rounded joints (sphere radius) so the figure reads as a body, not a stick.
+// Rounded joints (sphere radius) so limbs flow smoothly through elbows/knees/etc.
 const JOINT_BALLS: [number, number][] = [
-  [J.Core, 0.085], [J.Neck, 0.05],
-  [J.LSho, 0.05], [J.RSho, 0.05], [J.LHip, 0.06], [J.RHip, 0.06],
-  [J.LElb, 0.042], [J.RElb, 0.042], [J.LKnee, 0.055], [J.RKnee, 0.055],
-  [J.LWri, 0.034], [J.RWri, 0.034], [J.LAnkle, 0.044], [J.RAnkle, 0.044],
-  [J.LHand, 0.04], [J.RHand, 0.04],
+  [J.LSho, 0.052], [J.RSho, 0.052],
+  [J.LElb, 0.04], [J.RElb, 0.04], [J.LWri, 0.03], [J.RWri, 0.03],
+  [J.LKnee, 0.06], [J.RKnee, 0.06], [J.LAnkle, 0.043], [J.RAnkle, 0.043],
+  [J.LHand, 0.046], [J.RHand, 0.046], // hands (fist-sized)
+  [J.LToe, 0.03], [J.RToe, 0.03], [J.LHeel, 0.03], [J.RHeel, 0.03],
 ]
-const HEAD_R = 0.11
+const HEAD_R = 0.12
 
 const UP = new THREE.Vector3(0, 1, 0)
 
-/** One grappler: reusable cylinders (bones) + spheres (joints) of one colour. */
+/**
+ * One grappler with a fleshed-out body: muscle-tapered limbs (cylinders),
+ * rounded joints (spheres), a head + neck, and oriented trunk volumes
+ * (chest, abdomen, pelvis) plus a dark BJJ belt — all driven each frame from
+ * the 23-joint skeleton.
+ */
 class Figure {
   group = new THREE.Group()
   private bones: THREE.Mesh[] = []
   private balls: THREE.Mesh[] = []
   private head: THREE.Mesh
-  private spine: THREE.Mesh // Core -> pelvis midpoint (lower trunk)
+  private chest: THREE.Mesh
+  private abdomen: THREE.Mesh
+  private pelvis: THREE.Mesh
+  private belt: THREE.Mesh
 
   constructor(color: number) {
-    const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05 })
-    for (const [, , r] of BONES) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, 1, 10), mat)
+    const skin = new THREE.MeshStandardMaterial({
+      color, roughness: 0.5, metalness: 0.0, envMapIntensity: 0.9,
+    })
+    const beltMat = new THREE.MeshStandardMaterial({
+      color: 0x15171c, roughness: 0.7, metalness: 0.0, envMapIntensity: 0.6,
+    })
+
+    for (const [, , rA, rB] of BONES) {
+      // +Y of the cylinder points to joint B (see orientBone), so top radius = rB.
+      // Joint spheres of matching radius cap each end → seamless capsule limbs.
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(rB, rA, 1, 16), skin)
       m.castShadow = true
       this.bones.push(m)
       this.group.add(m)
     }
-    this.spine = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.075, 1, 10), mat)
-    this.spine.castShadow = true
-    this.group.add(this.spine)
     for (const [, r] of JOINT_BALLS) {
-      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 10), mat)
+      const m = new THREE.Mesh(new THREE.SphereGeometry(r, 16, 12), skin)
       m.castShadow = true
       this.balls.push(m)
       this.group.add(m)
     }
-    this.head = new THREE.Mesh(new THREE.SphereGeometry(HEAD_R, 16, 12), mat)
+    this.head = new THREE.Mesh(new THREE.SphereGeometry(HEAD_R, 24, 18), skin)
+    this.head.scale.set(0.92, 1.08, 0.96) // slightly egg-shaped
     this.head.castShadow = true
     this.group.add(this.head)
+
+    // Trunk volumes: unit cylinders (radius 0.5, height 1) scaled per frame into
+    // ellipsoidal blocks — rounder than boxes, and the flat caps tuck under the
+    // shoulders / pelvis. The belt is a thin dark band at the waist.
+    const trunk = () => {
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 24), skin)
+      m.castShadow = true
+      this.group.add(m)
+      return m
+    }
+    this.chest = trunk()
+    this.abdomen = trunk()
+    this.pelvis = trunk()
+    this.belt = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1, 24), beltMat)
+    this.belt.castShadow = true
+    this.group.add(this.belt)
   }
 
   /** Position all meshes from a 23-joint array (already in world space). */
-  update(joints: THREE.Vector3[]) {
-    BONES.forEach(([a, b], i) => orientBone(this.bones[i], joints[a], joints[b]))
-    JOINT_BALLS.forEach(([j], i) => this.balls[i].position.copy(joints[j]))
-    this.head.position.copy(joints[J.Head])
-    _pelvis.addVectors(joints[J.LHip], joints[J.RHip]).multiplyScalar(0.5)
-    orientBone(this.spine, joints[J.Core], _pelvis)
+  update(j: THREE.Vector3[]) {
+    BONES.forEach(([a, b], i) => orientBone(this.bones[i], j[a], j[b]))
+    JOINT_BALLS.forEach(([k], i) => this.balls[i].position.copy(j[k]))
+
+    const core = j[J.Core]
+    const sMid = _sMid.addVectors(j[J.LSho], j[J.RSho]).multiplyScalar(0.5)
+    const hMid = _hMid.addVectors(j[J.LHip], j[J.RHip]).multiplyScalar(0.5)
+    const shoulderSpan = j[J.LSho].distanceTo(j[J.RSho])
+    const hipSpan = j[J.LHip].distanceTo(j[J.RHip])
+
+    // head: sit it on the neck and tilt it along Neck→Head
+    _yd.subVectors(j[J.Head], j[J.Neck])
+    if (_yd.lengthSq() > 1e-9) this.head.quaternion.setFromUnitVectors(UP, _yd.normalize())
+    this.head.position.copy(j[J.Head])
+
+    // chest: shoulder line → core, as wide as the shoulders
+    _c.addVectors(sMid, core).multiplyScalar(0.5)
+    _yd.subVectors(sMid, core)
+    _xr.subVectors(j[J.RSho], j[J.LSho])
+    orientPart(this.chest, _c, _yd, Math.max(_yd.length(), 0.06), _xr, Math.max(shoulderSpan * 1.05, 0.2), 0.19)
+
+    // abdomen: core → hips
+    _c.addVectors(core, hMid).multiplyScalar(0.5)
+    _yd.subVectors(core, hMid)
+    _xr.subVectors(j[J.RHip], j[J.LHip])
+    orientPart(this.abdomen, _c, _yd, Math.max(_yd.length(), 0.06), _xr, Math.max(hipSpan * 1.05, 0.17), 0.17)
+
+    // pelvis: a rounded block spanning the hips (long axis = hip-to-hip)
+    _xr.subVectors(core, hMid) // vertical reference
+    _yd.subVectors(j[J.RHip], j[J.LHip])
+    orientPart(this.pelvis, hMid, _yd, Math.max(hipSpan * 1.1, 0.12), _xr, 0.2, 0.18)
+
+    // belt: thin dark band just above the hips
+    _c.copy(hMid).addScaledVector(_xr, 0.16) // _xr still = core - hMid (toward the torso)
+    _yd.subVectors(j[J.RHip], j[J.LHip])
+    _xr.subVectors(core, hMid)
+    orientPart(this.belt, _c, _yd, Math.max(hipSpan * 1.18, 0.14), _xr, 0.07, 0.21)
   }
 }
-const _pelvis = new THREE.Vector3()
+const _sMid = new THREE.Vector3()
+const _hMid = new THREE.Vector3()
+const _c = new THREE.Vector3()
+const _yd = new THREE.Vector3()
+const _xr = new THREE.Vector3()
+const _bx = new THREE.Vector3()
+const _by = new THREE.Vector3()
+const _bz = new THREE.Vector3()
+const _m4 = new THREE.Matrix4()
+
+/**
+ * Orient & scale a unit body part (cylinder height 1, radius 0.5, centred) into an
+ * ellipsoidal block: `center` = world position, `yDir`/`yLen` = long axis + length,
+ * `xRef` = the lateral direction (orthogonalised against yDir), `width`/`depth` =
+ * the two cross-section diameters.
+ */
+function orientPart(
+  mesh: THREE.Mesh, center: THREE.Vector3, yDir: THREE.Vector3, yLen: number,
+  xRef: THREE.Vector3, width: number, depth: number,
+) {
+  _by.copy(yDir)
+  if (_by.lengthSq() < 1e-9) _by.set(0, 1, 0)
+  _by.normalize()
+  _bx.copy(xRef).addScaledVector(_by, -xRef.dot(_by)) // orthogonalise against unit _by
+  if (_bx.lengthSq() < 1e-9) _bx.set(1, 0, 0).addScaledVector(_by, -_by.x)
+  _bx.normalize()
+  _bz.crossVectors(_bx, _by).normalize()
+  _bx.crossVectors(_by, _bz).normalize() // re-orthonormalise
+  _m4.makeBasis(_bx, _by, _bz)
+  mesh.quaternion.setFromRotationMatrix(_m4)
+  mesh.position.copy(center)
+  mesh.scale.set(width, yLen, depth)
+}
 
 const _dir = new THREE.Vector3()
 function orientBone(mesh: THREE.Mesh, a: THREE.Vector3, b: THREE.Vector3) {
@@ -122,10 +215,20 @@ export class RollScene {
     this.ok = true
     this.renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio ?? 1, 2))
     this.renderer.shadowMap.enabled = true
-    this.renderer.shadowMap.type = THREE.PCFShadowMap
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap // softer shadow edges
+    // Filmic tone mapping → realistic highlight roll-off instead of flat, blown-out colour.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 0.72
 
     this.scene.background = new THREE.Color(0x0b1120)
     this.scene.fog = new THREE.Fog(0x0b1120, 6, 14)
+
+    // Image-based lighting: a procedural studio environment (no asset download) feeds
+    // soft, directional ambient into every MeshStandardMaterial — the single biggest
+    // jump in how "real" the skin/mat read, with no runtime fetch.
+    const pmrem = new THREE.PMREMGenerator(this.renderer)
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
 
     this.camera.position.set(2.4, 2.0, 3.4)
     this.camera.lookAt(0, 0.45, 0)
@@ -288,18 +391,21 @@ function centeredJoints(youRaw: number[][], oppRaw: number[][]) {
 
 // ---- mat + dojo environment ----
 function buildEnvironment(scene: THREE.Scene) {
-  scene.add(new THREE.HemisphereLight(0xbfd2ff, 0x202838, 0.85))
-  const key = new THREE.DirectionalLight(0xffffff, 1.5)
+  // Env map carries the ambient now, so the hemisphere light is just a gentle tint.
+  scene.add(new THREE.HemisphereLight(0xbfd2ff, 0x202838, 0.25))
+  const key = new THREE.DirectionalLight(0xffffff, 1.6)
   key.position.set(3, 6, 4)
   key.castShadow = true
-  key.shadow.mapSize.set(1024, 1024)
+  key.shadow.mapSize.set(2048, 2048)
+  key.shadow.radius = 4 // soft (PCFSoft) edges
+  key.shadow.bias = -0.0004
   key.shadow.camera.near = 1
   key.shadow.camera.far = 20
   const d = 4
   key.shadow.camera.left = -d; key.shadow.camera.right = d
   key.shadow.camera.top = d; key.shadow.camera.bottom = -d
   scene.add(key)
-  const fill = new THREE.DirectionalLight(0x88aaff, 0.4)
+  const fill = new THREE.DirectionalLight(0x88aaff, 0.25)
   fill.position.set(-4, 3, -2)
   scene.add(fill)
 

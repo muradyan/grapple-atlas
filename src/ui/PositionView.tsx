@@ -85,10 +85,6 @@ export default function PositionView({
       {/* shorter, fixed height on mobile (keeps the sticky stage compact); 4:3 on desktop */}
       <div className="relative h-[32vh] w-full bg-mat-900 sm:h-[40vh] lg:h-auto lg:aspect-[4/3]">
         <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-        <div className="absolute left-2 top-2 flex gap-1.5 text-[10px] font-semibold uppercase tracking-wide">
-          <span className="rounded bg-red-600/85 px-1.5 py-0.5 text-white">Red</span>
-          <span className="rounded bg-blue-600/85 px-1.5 py-0.5 text-white">Blue</span>
-        </div>
         <span className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/30 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-slate-300">
           drag to rotate · pinch to zoom
         </span>
