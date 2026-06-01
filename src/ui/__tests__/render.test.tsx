@@ -6,7 +6,7 @@ import { nodeById, START_NODES } from '../../engine/graph'
 
 afterEach(cleanup)
 
-describe('Grapple Explorer', () => {
+describe('Grapple Atlas', () => {
   it('shows the start chooser before a position is picked', () => {
     useExplore.getState().newStart()
     render(<App />)

@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Core domain types for the Grapple Explorer. The app navigates GrappleMap's
+// Core domain types for Grapple Atlas. The app navigates GrappleMap's
 // directed graph of positions (nodes) and transitions (edges); see graph.ts.
 // ---------------------------------------------------------------------------
 

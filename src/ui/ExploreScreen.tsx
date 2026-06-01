@@ -33,7 +33,7 @@ export default function ExploreScreen() {
   const share = async () => {
     try {
       const url = location.href
-      if (navigator.share) await navigator.share({ title: 'Grapple Explorer', url })
+      if (navigator.share) await navigator.share({ title: 'Grapple Atlas', url })
       else { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500) }
     } catch { /* user dismissed */ }
   }
@@ -52,7 +52,7 @@ export default function ExploreScreen() {
       {/* header */}
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="font-display text-base font-bold uppercase tracking-widest text-white sm:text-lg">
-          Grapple <span className="text-accent">Explorer</span>
+          Grapple <span className="text-accent">Atlas</span>
         </h1>
         <div className="flex items-center gap-2">
           <button

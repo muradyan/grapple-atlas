@@ -4,7 +4,7 @@ const CONTACT_URL = 'https://instagram.com/amur.raf'
 export default function Feedback({ className = '' }: { className?: string }) {
   return (
     <div className={`flex items-center justify-center gap-2 text-[11px] text-slate-500 ${className}`}>
-      <span>We’d love your ideas to improve Grapple Explorer</span>
+      <span>We’d love your ideas to improve Grapple Atlas</span>
       <a
         href={CONTACT_URL}
         target="_blank"

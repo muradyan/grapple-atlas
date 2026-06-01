@@ -1,4 +1,6 @@
-# 🥋 Grapple Explorer
+# 🥋 Grapple Atlas
+
+[grappleatlas.com](https://grappleatlas.com)
 
 An interactive map of Brazilian Jiu-Jitsu (No-Gi) positions and the transitions
 between them, rendered **live in 3D**. Pick a position, see every technique that

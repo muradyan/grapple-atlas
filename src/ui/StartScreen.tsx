@@ -19,7 +19,7 @@ export default function StartScreen() {
     <div className="mx-auto w-full max-w-4xl px-4 py-10">
       <div className="mb-8 text-center">
         <h1 className="font-display text-4xl font-bold uppercase tracking-widest text-white">
-          Grapple <span className="text-accent">Explorer</span>
+          Grapple <span className="text-accent">Atlas</span>
         </h1>
         <p className="mx-auto mt-2 max-w-lg text-sm text-slate-400">
           Pick a position to start, then explore every transition out of it — travel the
