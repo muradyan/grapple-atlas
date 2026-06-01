@@ -1,0 +1,12 @@
+
+# dataset & build artifacts
+node_modules/
+dist/
+data-raw/
+scripts/art-out/
+bjj-session.log
+
+.env
+.env.local
+.DS_Store
+*.log
